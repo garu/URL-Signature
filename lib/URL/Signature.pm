@@ -30,55 +30,22 @@ sub new {
         unless defined _POSINT($attrs{'length'});
 
     $attrs{'format'} ||= 'path';
-    Carp::croak(q[format should be either 'path' or 'query'])
-        unless defined _STRING($attrs{'format'})
-           and ($attrs{'format'} eq 'path' or $attrs{'format'} eq 'query');
+    my $child_class = 'URL::Signature::' . ucfirst $attrs{'format'};
 
-    if ($attrs{'format'} eq 'path') {
-        $attrs{'as'} = 1 unless exists $attrs{'as'};
-        Carp::croak( q[in 'path' format, 'as' needs to be a non-negative integer])
-            unless defined _NONNEGINT($attrs{'as'});
-    }
-    else {
-        $attrs{'as'} ||= 'k';
-        Carp::croak(q[in 'query' format, 'as' needs to be a valid string])
-            unless defined _STRING($attrs{'as'});
-    }
+    Carp::croak(qq[invalid format '$attrs{format}'])
+        unless defined _STRING($attrs{'format'}) and _CLASS($child_class);
 
     $attrs{'hmac'} = Digest::HMAC->new( $attrs{'key'}, $attrs{'digest'} );
 
-    return bless \%attrs, $class;
+    my ($loaded, $error) = Class::Load::try_load_class( $child_class );
+    Carp::croak(qq[error trying to load format class '$child_class': $error])
+        unless $loaded;
+
+    my $self = bless \%attrs, $child_class;
+    $self->BUILD;
+    return $self;
 }
 
-sub validate {
-    my ($self, $path) = @_;
-    my $uri = URI->new( $path );
-    my $splitter = '_split_' . $self->{'format'};
-
-    my ($code, $new_uri) = $self->$splitter( $uri );
-    return unless $code and $uri;
-
-    return if $code ne $self->code_for_uri( $new_uri );
-
-    return $new_uri;
-}
-
-sub _split_path {          ## no critic qw(ProhibitUnusedPrivateSubroutines)
-    my ($self, $uri) = @_;
-    my @segments = $uri->path_segments;
-    return if scalar @segments <= $self->{'as'};
-
-    my $code = splice @segments, $self->{'as'}, 1;
-    $uri->path_segments( @segments );
-
-    return ($code, $uri);
-}
-
-sub _split_query {          ## no critic qw(ProhibitUnusedPrivateSubroutines)
-    my ($self, $uri) = @_;
-    my $code = $uri->query_param_delete( $self->{as} );
-    return ($code, $uri);
-}
 
 sub code_for_uri {
     my ($self, $uri) = @_;
@@ -96,41 +63,43 @@ sub code_for_uri {
     return $code;
 }
 
-sub encrypt {
+
+sub sign {
     my ($self, $path) = @_;
     my $uri = URI->new( $path );
     my $code = $self->code_for_uri( $uri );
 
-    my $appender = '_append_' . $self->{'format'};
-    return $self->$appender( $uri, $code );
+    return $self->append( $uri, $code );
 }
 
-sub _append_path {          ## no critic qw(ProhibitUnusedPrivateSubroutines)
-    my ($self, $uri, $code) = @_;
-    my @segments = $uri->path_segments;
-    return if scalar @segments <= $self->{'as'};
-    splice @segments, $self->{'as'}, 0, $code;
-    $uri->path_segments(@segments);
-    return $uri;
+
+sub validate {
+    my ($self, $path, $old_code) = @_;
+    my $uri = URI->new( $path );
+
+    return $old_code eq $self->code_for_uri( $uri )
+        if $old_code;
+
+    my ($code, $new_uri) = $self->extract( $uri );
+    return if    not $code
+              or not $uri
+              or $code ne $self->code_for_uri( $new_uri );
+
+    return $new_uri;
 }
 
-sub _append_query {         ## no critic qw(ProhibitUnusedPrivateSubroutines)
-    my ($self, $uri, $code) = @_;
-    my $varname = $self->{as};
-    my $code_check = $uri->query_param_delete($varname);
-    Carp::croak("variable '$varname' (reserved for auth code) found in path")
-        if $code_check;
 
-    $uri->query_param_append( $varname => $code );
-    return $uri;
-}
+# let our subclasses implement those
+sub BUILD   {}
+sub extract {}
+sub append  {}
 
 
 42;
 __END__
 =head1 NAME
 
-URL::Signature - Sign URLs to tamper-proof them
+URL::Signature - Tamper-proof URL with Signed authentication
 
 
 =head1 SYNOPSIS
@@ -149,7 +118,7 @@ URL::Signature - Sign URLs to tamper-proof them
   );
 
   # get a URI object with the HMAC signature attached to it
-  my $url = $obj->encrypt( '/path/to/somewhere?data=stuff' );
+  my $url = $obj->sign( '/path/to/somewhere?data=stuff' );
 
 
   # if path is valid, get a URI object without the signature in it
@@ -169,17 +138,19 @@ Want to put your signatures in variables instead of the path? No problem!
   my $path = 'www.example.com/some/path?data=value&foo=1b23094726520&other=extra';
   my $validated = $obj->validate($path);
 
-  my $url = $obj->encrypt( '/path/to/somewhere?data=stuff' );
+  my $url = $obj->sign( '/path/to/somewhere?data=stuff' );
 
-
+You can also do the mangling yourself and just check
 Check below for some examples on how to integrate the integrity check to
-som L<popular Perl web frameworks/EXAMPLES>.
-  
+some L<popular Perl web frameworks/EXAMPLES>.
+ 
+
 =head1 DESCRIPTION
 
 This module is a simple wrapper around L<Digest::HMAC> and <URI>. It is
 intended to make it simple to do integrity checks on URLs (and other URIs
 as well).
+
 
 =head2 URL Tampering?
 
@@ -240,10 +211,11 @@ appended in your URIs. This needs to be a positive integer, and
 defaults to B<28>. Note that, the smaller the string, the easier
 it is for a malicious user to brute-force it.
 
-=item * B<format> - Can be set to either 'I<path>' or 'I<query>'.
-When set to 'path', the authentication code will be injected into
-(and extracted from) one of the URI's segment. When set to 'query',
-it will be injected/extracted as a query parameter. Default is B<path>.
+=item * B<format> - This module provides two different formats for
+URL signing: 'I<path>' and 'I<query>'. When set to 'path', the
+authentication code will be injected into (and extracted from)
+one of the URI's segment. When set to 'query', it will be
+injected/extracted as a query parameter. Default is B<path>.
 
 =item * B<as> - When the format is 'I<path>', this option will specify
 the segment's position in which to inject/extract the authentication code.
@@ -258,9 +230,9 @@ L<Digest::SHA>, which uses the SHA-1 algorithm by default.
 
 =back
 
-=head2 encrypt( $url_string )
+=head2 sign( $url_string )
 
-Receives a string containing the URL to be encrypted. Returns a
+Receives a string containing the URL to be signed. Returns a
 L<URI> object with the original URL modified to contain the
 authentication code.
 
@@ -271,16 +243,56 @@ false if the URL's auth code is not a match, otherwise returns
 an L<URI> object containing the original URL minus the
 authentication code.
 
-=head2 code_for_uri( $uri_object )
+=head2 Convenience Methods
 
-This is a convenience method that you probably won't need. It
-receives an URI object and returns a string containing the
+Aside from C<sign()> and C<validate()>, there are a few other
+methods you may find useful:
+
+=head3 code_for_uri( $uri_object )
+
+Receives a L<URI> object and returns a string containing the
 authentication code necessary for that object.
+
+=head3 extract( $uri_object )
+
+    my ($code, $new_uri) = $obj->extract( $original_uri );
+
+Receives a L<URI> object and returns two elements:
+
+=over 4
+
+=item * the extracted signature from the given URI
+
+=item * a new URI object just like the original minus the signature
+
+=back
+
+This method is implemented by the format subclasses themselves, so
+you're advised to referring to their documentation for specifics.
+
+=head3 append
+
+    my $new_uri = $obj->append( $original_uri, $code );
+
+Receives a L<URI> object and the authentication code to be inserted.
+Returns a new URI object with the auth code properly appended, according
+to the requested format.
+
+This method is implemented by the format subclasses themselves, so
+you're advised to referring to their documentation for specifics.
 
 
 =head1 EXAMPLES
 
+The code below demonstrates how to use URL::Signature in the real world.
+These are, of course, just snippets to show you possibilities, and are
+not meant to be rules or design patterns. Please refer to the framework's
+documentation and communities for best practices.
+
 =head2 Dancer Integration
+
+If you're using L<Dancer>, you can create a 'before' hook to check
+all your routes' signatures. This example uses the 'path' format.
 
     use Dancer;
     use URL::Signature;
@@ -307,6 +319,10 @@ authentication code necessary for that object.
 
 =head2 Plack Integration
 
+Most Perl web frameworks nowadays run on L<PSGI>. If you're working
+directly with L<Plack>, you can use something like the example below
+to validate your URLs. This example uses the 'path' format.
+
     package Plack::App::MyApp;
     use parent qw(Plack::Component);
     use URL::Signature;
@@ -323,6 +339,71 @@ authentication code necessary for that object.
     package main;
     
     my $app = Plack::App::MyApp->new->to_app;
+
+
+=head2 Catalyst integration
+
+L<Catalyst> is arguably the most popular Perl MVC framework out there,
+and lets you chain your actions together for increased power and
+flexibility. In this example, we are using path validation in one of our
+controllers, and detaching to a 'default' action if the path's signature
+is invalid.
+
+    sub signed :Chained('/') :PathPart('') :CaptureArgs(1) {
+        my ($self, $c, $code) = @_;
+
+        # get the key from your app's config file
+        my $signer = URL::Signature->new( key => $c->config->{url_key} );
+
+        $c->detach('default')
+            unless $signer->validate( $c->req->uri->path );
+    }
+
+Now we can make signed actions anywhere in the controller by simply
+making sure it is chained to our 'signed' sub:
+
+    sub some_action :Chained('signed') {
+        my ($self, $c) = @_;
+        ...
+    }
+
+=head2 Creating signed links to your actions
+
+When you need to create links to your signed routes, just use the sign()
+method as you normally would. If you're worried about your app's root
+namespace, just use your framework's C<uri_for('/some/path')> method.
+Below we created a 'C<signed_uri_for>' function in Catalyst's stash
+as an example (though virtually all frameworks provide a C<stash> and
+a C<uri_for> helper):
+
+    my $signer = URL::Signature->new( key => 'my-secret-key' );
+    $c->stash( signed_uri_for =>
+        sub { $signer->sign( $c->uri_for(@_)->path ) }
+    );
+
+    # later on, in your code:
+    my $link = $c->stash->{signed_uri_for}->( '/some/path' );
+
+    # or even better, from within your template:
+    <a href="[% signed_uri_for('/some/path') %]">Click now!</a>
+
+
+=head2 Getting the signature from HTTP headers
+
+Some argue that it's more elegant to pass the resource signature via
+HTTP headers, rather than altering the URL itself. URL::Signature
+also fits the bill, but in this case you'd use it in a slightly different
+way. Below is an example, using Catalyst:
+
+    sub signed :Chained('/') {
+        my ($self, $c) = @_;
+        my $signer     = URL::Signature->new( key => $c->config->{url_key} );
+
+        my $given_code = $c->req->header('X-Signature');
+        my $real_code  = $signer->code_for_uri( $c->req->uri );
+
+        $c->detach('/') unless $given_code eq $real_code;
+    }
 
 
 =head1 DIAGNOSTICS
@@ -376,7 +457,7 @@ As such, the value for 'as' should be a valid string.
 
 =back
 
-Messages from C<encrypt()>:
+Messages from C<sign()>:
 
 =over 4
 
@@ -389,6 +470,30 @@ finds that a variable with the same name already exists (the
 
 =back
 
+=head1 EXTENDING
+
+When you specify a 'format' attribute, URL::Signature will try
+and load the proper subclass for you. For example, the 'path'
+format is implemented by L<URL::Signature::Path>, and the 'query'
+format by L<URL::Signature::Query>. Please follow the same
+convention for your custom formatters so others can use it via
+the URL::Signature interface.
+
+If you wish do create a new format for URL::Signature, you'll
+need to implement at least C<extract()> and C<append()>. If you
+wish to mangle with constructor attributes, please do so in the
+BUILD(), as you would with Moose classes:
+
+=head2 BUILD
+
+URL::Signature will call this method on the subclass after the
+object is instantiated, just like Moose does. The only argument
+is $self, with attributes properly set into place in the internal
+hash for you to check.
+
+Feel free to skim through the bundled URL::Signature formatters and
+use them as a base to develop your own.
+
 
 =head1 CONFIGURATION AND ENVIRONMENT
 
@@ -398,9 +503,20 @@ URL::Signature requires no configuration files or environment variables.
 =head1 BUGS AND LIMITATIONS
 
 Please report any bugs or feature requests to
-C<bug-url-encrypt@rt.cpan.org>, or through the web interface at
+C<bug-url-sign@rt.cpan.org>, or through the web interface at
 L<http://rt.cpan.org>.
 
+=head1 SEE ALSO
+
+=over 4
+
+=item * L<URI>
+
+=item * L<Digest::HMAC>
+
+=item * L<WWW::SEOmoz>
+
+=back
 
 =head1 AUTHOR
 

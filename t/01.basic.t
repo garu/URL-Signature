@@ -18,30 +18,28 @@ like $@, qr{you must specify a secret key!} => 'key must be a valid string';
 eval {
     $obj = URL::Signature->new( key => 'foo' );
 };
-ok !$@ => 'valid key creates object';
+ok !$@ => 'valid key creates object' . ' --> ' . $@;
 
-isa_ok $obj, 'URL::Signature' => 'created object is-a URL::Signature';
+can_ok $obj, qw( new sign validate code_for_uri extract append );
 
-can_ok $obj, qw( new encrypt validate );
+my $uri = $obj->sign( 'example.com/foo/bar' );
 
-my $uri = $obj->encrypt( 'example.com/foo/bar' );
-
-ok defined $uri => 'encrypt() returns something';
-isa_ok $uri, 'URI' => 'encrypt() returns an URI object';
+ok defined $uri => 'sign() returns something';
+isa_ok $uri, 'URI' => 'sign() returns an URI object';
 
 is "$uri",
    'example.com/1RBcy0FMGFnrkp1shXH3lZYxzH8/foo/bar'
-    => "encrypt() returns properly signed path: $uri";
+    => "sign() returns properly signed path: $uri";
 
 
 my $valid =  $obj->validate( "$uri" );
 ok $valid => 'validate() returns true for valid uri';
 is "$valid", 'example.com/foo/bar' => 'valid uri is stripped of mac';
 
-$uri = $obj->encrypt( 'example.com/meep/moop?language=perl&answer=42' );
+$uri = $obj->sign( 'example.com/meep/moop?language=perl&answer=42' );
 is "$uri",
    'example.com/iOAL5YwtNCCZgz7QiEir-RgrNMY/meep/moop?answer=42&language=perl'
-   => "encrypt() also works for paths with query strings: $uri";
+   => "sign() also works for paths with query strings: $uri";
 
 $valid = $obj->validate( "$uri" );
 ok $valid => 'validate() returns true for valid paths with query strings';
@@ -67,18 +65,18 @@ eval {
 };
 ok !$@ => 'object creation ok (with query format)';
 
-$uri = $obj->encrypt( 'example.com/foo/bar' );
+$uri = $obj->sign( 'example.com/foo/bar' );
 
-ok defined $uri => 'encrypt() returns something (query mode)';
-isa_ok $uri, 'URI' => 'encrypt() returns an URI object (query mode)';
+ok defined $uri => 'sign() returns something (query mode)';
+isa_ok $uri, 'URI' => 'sign() returns an URI object (query mode)';
 
 is "$uri",
    'example.com/foo/bar?k=1RBcy0FMGFnrkp1shXH3lZYxzH8',
-   => 'encrypt() returns properly signed path (query mode)';
+   => 'sign() returns properly signed path (query mode)';
 
-$uri = $obj->encrypt( 'example.com/foo/bar?baz=meep&ping=pong' );
-ok defined $uri => 'encrypt() return something (query mode 2)';
-isa_ok $uri, 'URI' => 'encrypt() returns an URI object (query mode 2)';
+$uri = $obj->sign( 'example.com/foo/bar?baz=meep&ping=pong' );
+ok defined $uri => 'sign() return something (query mode 2)';
+isa_ok $uri, 'URI' => 'sign() returns an URI object (query mode 2)';
 
 my %q = $uri->query_form;
 is_deeply \%q,
@@ -87,7 +85,7 @@ is_deeply \%q,
               ping => 'pong',
               k    => 'ICd7iQUOjxMXcevs4Ht8dC1SHnc',
           },
-          => 'encrypt() returns properly signed path (query mode 2)';
+          => 'sign() returns properly signed path (query mode 2)';
 
 $valid = $obj->validate("$uri");
 ok $valid => "validate() returns true for valid uri '$uri' (query mode)";
