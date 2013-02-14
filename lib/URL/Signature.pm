@@ -99,7 +99,7 @@ sub append  {}
 __END__
 =head1 NAME
 
-URL::Signature - Tamper-proof URL with Signed authentication
+URL::Signature - Tamper-proof URLs with Signed authentication
 
 
 =head1 SYNOPSIS
