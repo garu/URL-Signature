@@ -53,7 +53,7 @@ USAGE SAMPLE
     my $obj = URL::Signature->new( key => 'My secret key' );
 
     # get a URI object with the HMAC signature attached to it
-    my $url = $obj->encrypt( '/path/to/somewhere?data=stuff' );
+    my $url = $obj->sign( '/path/to/somewhere?data=stuff' );
 
     # if path is valid, get a URI object without the signature in it
     my $path = 'www.example.com/1b23094726520/some/path?data=value&other=extra';
