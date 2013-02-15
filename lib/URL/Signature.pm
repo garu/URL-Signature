@@ -221,7 +221,8 @@ injected/extracted as a query parameter. Default is B<path>.
 the segment's position in which to inject/extract the authentication code.
 If the format is set to 'path', this option defaults to B<1>. When the
 format is 'I<query>', this option specifies the query parameter's name,
-and defaults to 'B<k>'.
+and defaults to 'B<k>'. Other format providers might specify different
+defaults, so please check their documentation for details.
 
 =item * B<digest> - The name of the module handling the message digest
 algorithm to be used. This is typically one of the C<Digest::> modules,
