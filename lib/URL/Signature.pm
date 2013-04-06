@@ -3,12 +3,12 @@ package URL::Signature;
 use warnings;
 use strict;
 
-use URI             ();
-use URI::QueryParam ();
-use MIME::Base64    ();
-use Digest::HMAC    ();
-use Carp            ();
-use Class::Load     ();
+use URI                  ();
+use URI::QueryParam      ();
+use MIME::Base64    3.11 ();
+use Digest::HMAC         ();
+use Carp                 ();
+use Class::Load          ();
 use Params::Util    qw( _STRING _POSINT _NONNEGINT _CLASS );
 
 our $VERSION = '0.01';
