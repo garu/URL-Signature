@@ -11,7 +11,7 @@ use Carp                 ();
 use Class::Load          ();
 use Params::Util    qw( _STRING _POSINT _NONNEGINT _CLASS );
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 
 sub new {

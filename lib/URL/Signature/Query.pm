@@ -5,7 +5,7 @@ use warnings;
 use parent 'URL::Signature';
 use Params::Util qw( _STRING );
 
-our $VERSION = '0.01';
+our $VERSION = '0.03';
 
 sub new {
     my ($class, %attrs) = @_;
