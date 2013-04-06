@@ -12,7 +12,7 @@ WriteMakefile(
         'Test::More'      => 0,
         'URI'             => '1.60',
         'URI::QueryParam' => 0,
-        'MIME::Base64'    => 0,
+        'MIME::Base64'    => '3.11',
         'Digest::HMAC'    => 0,
         'Carp'            => 0,
         'Class::Load'     => 0,
